@@ -31,7 +31,6 @@
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://unpkg.com/lucide@0.383.0/dist/umd/lucide.js"></script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useCallback, useMemo } = React;
@@ -125,6 +124,19 @@ function ItemForm({ values, onChange, onSubmit, onCancel, submitLabel }) {
     </form>
   );
 }
+
+function Icon({ children, size = 16, color }) {
+  return <span style={{ fontSize: size, lineHeight: 1, color: color || "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{children}</span>;
+}
+const Plus = ({ size, color }) => <Icon size={size} color={color}>+</Icon>;
+const Trash2 = ({ size, color }) => <Icon size={size} color={color}>🗑</Icon>;
+const SettingsIconCmp = ({ size, color }) => <Icon size={size} color={color}>⚙</Icon>;
+const ChevronLeft = ({ size, color }) => <Icon size={size} color={color}>‹</Icon>;
+const ChevronRight = ({ size, color }) => <Icon size={size} color={color}>›</Icon>;
+const XIcon = ({ size, color }) => <Icon size={size} color={color}>✕</Icon>;
+const CalendarDays = ({ size, color }) => <Icon size={size} color={color}>📅</Icon>;
+const UtensilsCrossed = ({ size, color }) => <Icon size={size} color={color}>🍽</Icon>;
+const Check = ({ size, color }) => <Icon size={size} color={color}>✓</Icon>;
 
 function Plateful() {
   const [date, setDate] = useState(todayStr());
@@ -254,7 +266,6 @@ function Plateful() {
   const plannedGrouped = MEAL_TYPES.map((type) => ({ type, items: planEntries.filter((p) => p.mealType === type) }));
   const unloggedPlanItems = planEntries.filter((p) => !p.addedToLog);
   const caloriePct = settings.calorieGoal > 0 ? totals.calories / settings.calorieGoal : 0;
-  const { Plus, Trash2, Settings: SettingsIcon, ChevronLeft, ChevronRight, X, CalendarDays, UtensilsCrossed, Check } = lucide;
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: "#FBF8F3", color: "#262220", minHeight: "100vh", padding: "28px 20px 48px", maxWidth: 560, margin: "0 auto" }}>
@@ -265,7 +276,7 @@ function Plateful() {
         </div>
         <button onClick={() => { setDraftSettings(settings); setShowSettings(true); }} aria-label="Settings"
           style={{ background: "#fff", border: "1px solid #E5DDCF", borderRadius: 10, width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <SettingsIcon size={18} color="#262220" />
+          <SettingsIconCmp size={18} color="#262220" />
         </button>
       </div>
 
@@ -416,7 +427,7 @@ function Plateful() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 700 }}>Daily targets</div>
               <button onClick={() => setShowSettings(false)} style={{ background: "none", border: "none", display: "flex" }}>
-                <X size={20} color="#8A8175" />
+                <XIcon size={20} color="#8A8175" />
               </button>
             </div>
             <label style={labelStyle}>Calorie goal (kcal)</label>
