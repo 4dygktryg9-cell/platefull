@@ -10,6 +10,7 @@
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#2F5D50" />
 <link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Plateful" />
@@ -27,15 +28,18 @@
 <body>
 <div id="root"></div>
 
-<!-- React (no build step needed) -->
+<!-- React (classic scripts, attach to window.React / window.ReactDOM) -->
 <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
 
-<script type="text/babel" data-presets="react">
+<!-- App code: plain ES module, no build step, no in-browser transpiler -->
+<script type="module">
+import htm from "https://unpkg.com/htm@3.1.1?module";
+
+const html = htm.bind(React.createElement);
 const { useState, useEffect, useCallback, useMemo } = React;
 
-// ---- Local storage helper, mimicking the get/set shape used by the Claude artifact version ----
+// ---- Local storage helper ----
 const storage = {
   async get(key) {
     const raw = window.localStorage.getItem(key);
@@ -73,70 +77,82 @@ function addDays(dateStr, delta) {
   return d.toISOString().slice(0, 10);
 }
 
+const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #E5DDCF", fontSize: 14, fontFamily: "inherit", background: "#FBF8F3", color: "#262220" };
+const labelStyle = { display: "block", fontSize: 12, fontWeight: 600, color: "#8A8175", marginTop: 12, marginBottom: 6 };
+
+// ---- Simple text-based icons (no external icon library) ----
+function Icon({ children, size, color }) {
+  return html`<span style=${{ fontSize: size || 16, lineHeight: 1, color: color || "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>${children}</span>`;
+}
+const Plus = (p) => html`<${Icon} ...${p}>+<//>`;
+const Trash2 = (p) => html`<${Icon} ...${p}>🗑<//>`;
+const SettingsIconCmp = (p) => html`<${Icon} ...${p}>⚙<//>`;
+const ChevronLeft = (p) => html`<${Icon} ...${p}>‹<//>`;
+const ChevronRight = (p) => html`<${Icon} ...${p}>›<//>`;
+const XIcon = (p) => html`<${Icon} ...${p}>✕<//>`;
+const CalendarDays = (p) => html`<${Icon} ...${p}>📅<//>`;
+const UtensilsCrossed = (p) => html`<${Icon} ...${p}>🍽<//>`;
+const Check = (p) => html`<${Icon} ...${p}>✓<//>`;
+
 function Ring({ size, stroke, pct, color, trackColor }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const clamped = Math.max(0, Math.min(1, pct));
   const offset = c * (1 - clamped);
-  return (
-    <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={trackColor} strokeWidth={stroke} />
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
-        strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
-        style={{ transition: "stroke-dashoffset 0.5s ease" }} />
+  return html`
+    <svg width=${size} height=${size} style=${{ transform: "rotate(-90deg)" }}>
+      <circle cx=${size / 2} cy=${size / 2} r=${r} fill="none" stroke=${trackColor} stroke-width=${stroke} />
+      <circle
+        cx=${size / 2}
+        cy=${size / 2}
+        r=${r}
+        fill="none"
+        stroke=${color}
+        stroke-width=${stroke}
+        stroke-dasharray=${c}
+        stroke-dashoffset=${offset}
+        stroke-linecap="round"
+        style=${{ transition: "stroke-dashoffset 0.5s ease" }}
+      />
     </svg>
-  );
+  `;
 }
 
 function MacroRing({ label, consumed, goal, color }) {
   const pct = goal > 0 ? consumed / goal : 0;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-      <div style={{ position: "relative", width: 74, height: 74 }}>
-        <Ring size={74} stroke={8} pct={pct} color={color} trackColor="#EDE6DA" />
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
-          fontFamily: "'Fraunces', serif", fontSize: 15, fontWeight: 600, color: "#262220" }}>
-          {Math.round(consumed)}
+  return html`
+    <div style=${{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+      <div style=${{ position: "relative", width: 74, height: 74 }}>
+        <${Ring} size=${74} stroke=${8} pct=${pct} color=${color} trackColor="#EDE6DA" />
+        <div style=${{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Fraunces', serif", fontSize: 15, fontWeight: 600, color: "#262220" }}>
+          ${Math.round(consumed)}
         </div>
       </div>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "#262220", letterSpacing: 0.3 }}>{label}</div>
-        <div style={{ fontSize: 11, color: "#8A8175", fontVariantNumeric: "tabular-nums" }}>of {Math.round(goal)}g</div>
+      <div style=${{ textAlign: "center" }}>
+        <div style=${{ fontSize: 12, fontWeight: 600, color: "#262220", letterSpacing: 0.3 }}>${label}</div>
+        <div style=${{ fontSize: 11, color: "#8A8175", fontVariantNumeric: "tabular-nums" }}>of ${Math.round(goal)}g</div>
       </div>
     </div>
-  );
+  `;
 }
 
 function ItemForm({ values, onChange, onSubmit, onCancel, submitLabel }) {
-  return (
-    <form onSubmit={onSubmit} style={{ background: "#FBF8F3", border: "1px solid #E5DDCF", borderRadius: 14, padding: 14, marginTop: 8 }}>
-      <input type="text" placeholder="Food name" value={values.name} onChange={(e) => onChange("name", e.target.value)} style={inputStyle} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
-        <input type="number" placeholder="Cals" value={values.calories} onChange={(e) => onChange("calories", e.target.value)} style={inputStyle} />
-        <input type="number" placeholder="Protein g" value={values.protein} onChange={(e) => onChange("protein", e.target.value)} style={inputStyle} />
-        <input type="number" placeholder="Carbs g" value={values.carbs} onChange={(e) => onChange("carbs", e.target.value)} style={inputStyle} />
-        <input type="number" placeholder="Fat g" value={values.fat} onChange={(e) => onChange("fat", e.target.value)} style={inputStyle} />
+  return html`
+    <form onSubmit=${onSubmit} style=${{ background: "#FBF8F3", border: "1px solid #E5DDCF", borderRadius: 14, padding: 14, marginTop: 8 }}>
+      <input type="text" placeholder="Food name" value=${values.name} onInput=${(e) => onChange("name", e.target.value)} style=${inputStyle} />
+      <div style=${{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
+        <input type="number" placeholder="Cals" value=${values.calories} onInput=${(e) => onChange("calories", e.target.value)} style=${inputStyle} />
+        <input type="number" placeholder="Protein g" value=${values.protein} onInput=${(e) => onChange("protein", e.target.value)} style=${inputStyle} />
+        <input type="number" placeholder="Carbs g" value=${values.carbs} onInput=${(e) => onChange("carbs", e.target.value)} style=${inputStyle} />
+        <input type="number" placeholder="Fat g" value=${values.fat} onInput=${(e) => onChange("fat", e.target.value)} style=${inputStyle} />
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-        <button type="submit" style={{ flex: 1, background: "#2F5D50", color: "#fff", border: "none", borderRadius: 10, padding: "9px 0", fontSize: 13, fontWeight: 700 }}>{submitLabel}</button>
-        <button type="button" onClick={onCancel} style={{ background: "#fff", border: "1px solid #E5DDCF", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, color: "#8A8175" }}>Cancel</button>
+      <div style=${{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button type="submit" style=${{ flex: 1, background: "#2F5D50", color: "#fff", border: "none", borderRadius: 10, padding: "9px 0", fontSize: 13, fontWeight: 700 }}>${submitLabel}</button>
+        <button type="button" onClick=${onCancel} style=${{ background: "#fff", border: "1px solid #E5DDCF", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, color: "#8A8175" }}>Cancel</button>
       </div>
     </form>
-  );
+  `;
 }
-
-function Icon({ children, size = 16, color }) {
-  return <span style={{ fontSize: size, lineHeight: 1, color: color || "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{children}</span>;
-}
-const Plus = ({ size, color }) => <Icon size={size} color={color}>+</Icon>;
-const Trash2 = ({ size, color }) => <Icon size={size} color={color}>🗑</Icon>;
-const SettingsIconCmp = ({ size, color }) => <Icon size={size} color={color}>⚙</Icon>;
-const ChevronLeft = ({ size, color }) => <Icon size={size} color={color}>‹</Icon>;
-const ChevronRight = ({ size, color }) => <Icon size={size} color={color}>›</Icon>;
-const XIcon = ({ size, color }) => <Icon size={size} color={color}>✕</Icon>;
-const CalendarDays = ({ size, color }) => <Icon size={size} color={color}>📅</Icon>;
-const UtensilsCrossed = ({ size, color }) => <Icon size={size} color={color}>🍽</Icon>;
-const Check = ({ size, color }) => <Icon size={size} color={color}>✓</Icon>;
 
 function Plateful() {
   const [date, setDate] = useState(todayStr());
@@ -267,193 +283,202 @@ function Plateful() {
   const unloggedPlanItems = planEntries.filter((p) => !p.addedToLog);
   const caloriePct = settings.calorieGoal > 0 ? totals.calories / settings.calorieGoal : 0;
 
-  return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: "#FBF8F3", color: "#262220", minHeight: "100vh", padding: "28px 20px 48px", maxWidth: 560, margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 22 }}>
-        <div>
-          <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: 30, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>Plateful</h1>
-          <p style={{ margin: "4px 0 0", fontSize: 13, color: "#8A8175" }}>Track meals, hit your deficit, day by day.</p>
+  const mealTypeButtons = html`
+    <div style=${{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+      ${MEAL_TYPES.map((t) => html`
+        <button type="button" key=${t} onClick=${() => handleFormChange("mealType", t)}
+          style=${{ padding: "6px 14px", borderRadius: 999, border: form.mealType === t ? "1px solid #2F5D50" : "1px solid #E5DDCF", background: form.mealType === t ? "#2F5D50" : "#fff", color: form.mealType === t ? "#fff" : "#262220", fontSize: 13, fontWeight: 600 }}>
+          ${t}
+        </button>
+      `)}
+    </div>
+  `;
+
+  const logView = html`
+    <div>
+      <div style=${{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: "26px 20px", marginBottom: 22 }}>
+        <div style=${{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", textAlign: "center", marginBottom: 14 }}>${formatDateLabel(date)}'s Plate</div>
+        <div style=${{ display: "flex", justifyContent: "center", marginBottom: 22 }}>
+          <div style=${{ position: "relative", width: 168, height: 168 }}>
+            <${Ring} size=${168} stroke=${14} pct=${caloriePct} color=${caloriePct > 1 ? "#A85736" : "#2F5D50"} trackColor="#EDE6DA" />
+            <div style=${{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+              <div style=${{ fontFamily: "'Fraunces', serif", fontSize: 34, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>${Math.abs(Math.round(remaining))}</div>
+              <div style=${{ fontSize: 12, color: "#8A8175", fontWeight: 500 }}>${remaining >= 0 ? "kcal left" : "kcal over"}</div>
+            </div>
+          </div>
         </div>
-        <button onClick={() => { setDraftSettings(settings); setShowSettings(true); }} aria-label="Settings"
-          style={{ background: "#fff", border: "1px solid #E5DDCF", borderRadius: 10, width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <SettingsIconCmp size={18} color="#262220" />
-        </button>
+        <div style=${{ display: "flex", justifyContent: "center", gap: 28 }}>
+          <${MacroRing} label="Protein" consumed=${totals.protein} goal=${settings.proteinGoal} color="#A85736" />
+          <${MacroRing} label="Carbs" consumed=${totals.carbs} goal=${settings.carbGoal} color="#C99A2E" />
+          <${MacroRing} label="Fat" consumed=${totals.fat} goal=${settings.fatGoal} color="#55738C" />
+        </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 16 }}>
-        <button onClick={() => setDate((d) => addDays(d, -1))} aria-label="Previous day" style={{ background: "none", border: "none", padding: 6, display: "flex" }}>
-          <ChevronLeft size={20} color="#8A8175" />
-        </button>
-        <div style={{ fontSize: 15, fontWeight: 600, minWidth: 130, textAlign: "center" }}>{formatDateLabel(date)}</div>
-        <button onClick={() => setDate((d) => addDays(d, 1))} aria-label="Next day" style={{ background: "none", border: "none", padding: 6, display: "flex" }}>
-          <ChevronRight size={20} color="#8A8175" />
-        </button>
-      </div>
-
-      <div style={{ display: "flex", background: "#EDE6DA", borderRadius: 12, padding: 4, marginBottom: 22 }}>
-        <button onClick={() => setView("log")} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", borderRadius: 9, border: "none", background: view === "log" ? "#fff" : "transparent", color: view === "log" ? "#262220" : "#8A8175", fontSize: 13, fontWeight: 700, boxShadow: view === "log" ? "0 1px 2px rgba(0,0,0,0.06)" : "none" }}>
-          <UtensilsCrossed size={14} /> Log
-        </button>
-        <button onClick={() => setView("plan")} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", borderRadius: 9, border: "none", background: view === "plan" ? "#fff" : "transparent", color: view === "plan" ? "#262220" : "#8A8175", fontSize: 13, fontWeight: 700, boxShadow: view === "plan" ? "0 1px 2px rgba(0,0,0,0.06)" : "none" }}>
-          <CalendarDays size={14} /> Plan{planEntries.length > 0 ? ` (${planEntries.length})` : ""}
-        </button>
-      </div>
-
-      {view === "log" ? (
-        <>
-          <div style={{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: "26px 20px", marginBottom: 22 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", textAlign: "center", marginBottom: 14 }}>{formatDateLabel(date)}'s Plate</div>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 22 }}>
-              <div style={{ position: "relative", width: 168, height: 168 }}>
-                <Ring size={168} stroke={14} pct={caloriePct} color={caloriePct > 1 ? "#A85736" : "#2F5D50"} trackColor="#EDE6DA" />
-                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                  <div style={{ fontFamily: "'Fraunces', serif", fontSize: 34, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{Math.abs(Math.round(remaining))}</div>
-                  <div style={{ fontSize: 12, color: "#8A8175", fontWeight: 500 }}>{remaining >= 0 ? "kcal left" : "kcal over"}</div>
-                </div>
+      ${unloggedPlanItems.length > 0 ? html`
+        <div style=${{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: 18, marginBottom: 22 }}>
+          <div style=${{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", marginBottom: 10 }}>Planned for ${formatDateLabel(date).toLowerCase()}</div>
+          ${unloggedPlanItems.map((item) => html`
+            <div key=${item.id} style=${{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 4px", borderBottom: "1px solid #F2ECE1" }}>
+              <div>
+                <div style=${{ fontSize: 14, fontWeight: 600 }}>${item.name}</div>
+                <div style=${{ fontSize: 12, color: "#8A8175" }}>${item.mealType} &middot; ${item.calories} kcal</div>
               </div>
-            </div>
-            <div style={{ display: "flex", justifyContent: "center", gap: 28 }}>
-              <MacroRing label="Protein" consumed={totals.protein} goal={settings.proteinGoal} color="#A85736" />
-              <MacroRing label="Carbs" consumed={totals.carbs} goal={settings.carbGoal} color="#C99A2E" />
-              <MacroRing label="Fat" consumed={totals.fat} goal={settings.fatGoal} color="#55738C" />
-            </div>
-          </div>
-
-          {unloggedPlanItems.length > 0 && (
-            <div style={{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: 18, marginBottom: 22 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", marginBottom: 10 }}>Planned for {formatDateLabel(date).toLowerCase()}</div>
-              {unloggedPlanItems.map((item) => (
-                <div key={item.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 4px", borderBottom: "1px solid #F2ECE1" }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{item.name}</div>
-                    <div style={{ fontSize: 12, color: "#8A8175" }}>{item.mealType} &middot; {item.calories} kcal</div>
-                  </div>
-                  <button onClick={() => handleAddPlannedToLog(item)} style={{ background: "#2F5D50", color: "#fff", border: "none", borderRadius: 9, padding: "7px 12px", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                    <Plus size={13} /> Add to log
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <form onSubmit={handleAddEntry} style={{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: 20, marginBottom: 22 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", marginBottom: 12 }}>Log a meal</div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-              {MEAL_TYPES.map((t) => (
-                <button type="button" key={t} onClick={() => handleFormChange("mealType", t)}
-                  style={{ padding: "6px 14px", borderRadius: 999, border: form.mealType === t ? "1px solid #2F5D50" : "1px solid #E5DDCF", background: form.mealType === t ? "#2F5D50" : "#fff", color: form.mealType === t ? "#fff" : "#262220", fontSize: 13, fontWeight: 600 }}>
-                  {t}
-                </button>
-              ))}
-            </div>
-            <input type="text" placeholder="Food name (e.g. Grilled chicken salad)" value={form.name} onChange={(e) => handleFormChange("name", e.target.value)} style={inputStyle} />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
-              <input type="number" placeholder="Cals" value={form.calories} onChange={(e) => handleFormChange("calories", e.target.value)} style={inputStyle} />
-              <input type="number" placeholder="Protein g" value={form.protein} onChange={(e) => handleFormChange("protein", e.target.value)} style={inputStyle} />
-              <input type="number" placeholder="Carbs g" value={form.carbs} onChange={(e) => handleFormChange("carbs", e.target.value)} style={inputStyle} />
-              <input type="number" placeholder="Fat g" value={form.fat} onChange={(e) => handleFormChange("fat", e.target.value)} style={inputStyle} />
-            </div>
-            {error && <div style={{ color: "#A85736", fontSize: 13, marginTop: 8 }}>{error}</div>}
-            <button type="submit" style={{ marginTop: 12, width: "100%", background: "#2F5D50", color: "#fff", border: "none", borderRadius: 12, padding: "12px 0", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              <Plus size={16} /> Add to {form.mealType}
-            </button>
-          </form>
-
-          {loading ? (
-            <div style={{ textAlign: "center", color: "#8A8175", fontSize: 14, padding: 20 }}>Loading...</div>
-          ) : entries.length === 0 ? (
-            <div style={{ textAlign: "center", color: "#8A8175", fontSize: 14, padding: "30px 20px", border: "1px dashed #E5DDCF", borderRadius: 16 }}>Nothing logged for this day yet. Add your first meal above.</div>
-          ) : (
-            grouped.filter((g) => g.items.length > 0).map((g) => (
-              <div key={g.type} style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", marginBottom: 8 }}>{g.type}</div>
-                {g.items.map((item) => (
-                  <div key={item.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", border: "1px solid #EDE6DA", borderRadius: 14, padding: "12px 14px", marginBottom: 8 }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 600 }}>{item.name}</div>
-                      <div style={{ fontSize: 12, color: "#8A8175", fontVariantNumeric: "tabular-nums" }}>{item.calories} kcal &middot; P{item.protein} C{item.carbs} F{item.fat}</div>
-                    </div>
-                    <button onClick={() => handleDelete(item.id)} aria-label={`Delete ${item.name}`} style={{ background: "none", border: "none", padding: 6, display: "flex" }}>
-                      <Trash2 size={16} color="#C4A79A" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ))
-          )}
-        </>
-      ) : (
-        <>
-          <div style={{ marginBottom: 16, fontSize: 13, color: "#8A8175", lineHeight: 1.5 }}>
-            Schedule what you plan to eat on <strong style={{ color: "#262220" }}>{formatDateLabel(date).toLowerCase()}</strong>. Use the arrows above to plan other days ahead, then tap "Add to log" from the Log tab when you actually eat it.
-          </div>
-          {plannedGrouped.map((slot) => (
-            <div key={slot.type} style={{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 18, padding: 16, marginBottom: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: slot.items.length > 0 || addingSlot === slot.type ? 10 : 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#262220" }}>{slot.type}</div>
-                {addingSlot !== slot.type && (
-                  <button onClick={() => openPlanForm(slot.type)} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "#2F5D50", fontSize: 13, fontWeight: 700 }}>
-                    <Plus size={14} /> Add
-                  </button>
-                )}
-              </div>
-              {slot.items.map((item) => (
-                <div key={item.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid #F2ECE1" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {item.addedToLog && <Check size={14} color="#2F5D50" />}
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 600 }}>{item.name}</div>
-                      <div style={{ fontSize: 12, color: "#8A8175" }}>{item.calories} kcal &middot; P{item.protein} C{item.carbs} F{item.fat}</div>
-                    </div>
-                  </div>
-                  <button onClick={() => handleDeletePlanEntry(item.id)} aria-label={`Remove ${item.name}`} style={{ background: "none", border: "none", padding: 6, display: "flex" }}>
-                    <Trash2 size={15} color="#C4A79A" />
-                  </button>
-                </div>
-              ))}
-              {addingSlot === slot.type && (
-                <ItemForm values={planForm} onChange={(field, value) => setPlanForm((f) => ({ ...f, [field]: value }))}
-                  onSubmit={(e) => handleAddPlanEntry(e, slot.type)} onCancel={() => setAddingSlot(null)} submitLabel={`Add to ${slot.type}`} />
-              )}
-            </div>
-          ))}
-          {planError && <div style={{ color: "#A85736", fontSize: 13, marginTop: 4 }}>{planError}</div>}
-        </>
-      )}
-
-      {showSettings && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(38,34,32,0.4)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 50 }} onClick={() => setShowSettings(false)}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: "#FBF8F3", borderRadius: 20, padding: 24, width: "100%", maxWidth: 360 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 700 }}>Daily targets</div>
-              <button onClick={() => setShowSettings(false)} style={{ background: "none", border: "none", display: "flex" }}>
-                <XIcon size={20} color="#8A8175" />
+              <button onClick=${() => handleAddPlannedToLog(item)} style=${{ background: "#2F5D50", color: "#fff", border: "none", borderRadius: 9, padding: "7px 12px", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                <${Plus} size=${13} /> Add to log
               </button>
             </div>
-            <label style={labelStyle}>Calorie goal (kcal)</label>
-            <input type="number" value={draftSettings.calorieGoal} onChange={(e) => setDraftSettings((s) => ({ ...s, calorieGoal: e.target.value }))} style={inputStyle} />
-            <label style={labelStyle}>Protein goal (g)</label>
-            <input type="number" value={draftSettings.proteinGoal} onChange={(e) => setDraftSettings((s) => ({ ...s, proteinGoal: e.target.value }))} style={inputStyle} />
-            <label style={labelStyle}>Carb goal (g)</label>
-            <input type="number" value={draftSettings.carbGoal} onChange={(e) => setDraftSettings((s) => ({ ...s, carbGoal: e.target.value }))} style={inputStyle} />
-            <label style={labelStyle}>Fat goal (g)</label>
-            <input type="number" value={draftSettings.fatGoal} onChange={(e) => setDraftSettings((s) => ({ ...s, fatGoal: e.target.value }))} style={inputStyle} />
-            <p style={{ fontSize: 12, color: "#8A8175", marginTop: 10, lineHeight: 1.5 }}>
-              A common starting point for gradual weight loss is a moderate calorie deficit combined with enough protein to preserve muscle — adjust these to whatever your own plan calls for.
-            </p>
-            <button onClick={handleSaveSettings} style={{ marginTop: 10, width: "100%", background: "#2F5D50", color: "#fff", border: "none", borderRadius: 12, padding: "12px 0", fontSize: 14, fontWeight: 700 }}>Save targets</button>
-          </div>
+          `)}
         </div>
-      )}
+      ` : ""}
+
+      <form onSubmit=${handleAddEntry} style=${{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: 20, marginBottom: 22 }}>
+        <div style=${{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", marginBottom: 12 }}>Log a meal</div>
+        ${mealTypeButtons}
+        <input type="text" placeholder="Food name (e.g. Grilled chicken salad)" value=${form.name} onInput=${(e) => handleFormChange("name", e.target.value)} style=${inputStyle} />
+        <div style=${{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
+          <input type="number" placeholder="Cals" value=${form.calories} onInput=${(e) => handleFormChange("calories", e.target.value)} style=${inputStyle} />
+          <input type="number" placeholder="Protein g" value=${form.protein} onInput=${(e) => handleFormChange("protein", e.target.value)} style=${inputStyle} />
+          <input type="number" placeholder="Carbs g" value=${form.carbs} onInput=${(e) => handleFormChange("carbs", e.target.value)} style=${inputStyle} />
+          <input type="number" placeholder="Fat g" value=${form.fat} onInput=${(e) => handleFormChange("fat", e.target.value)} style=${inputStyle} />
+        </div>
+        ${error ? html`<div style=${{ color: "#A85736", fontSize: 13, marginTop: 8 }}>${error}</div>` : ""}
+        <button type="submit" style=${{ marginTop: 12, width: "100%", background: "#2F5D50", color: "#fff", border: "none", borderRadius: 12, padding: "12px 0", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <${Plus} size=${16} /> Add to ${form.mealType}
+        </button>
+      </form>
+
+      ${loading ? html`
+        <div style=${{ textAlign: "center", color: "#8A8175", fontSize: 14, padding: 20 }}>Loading...</div>
+      ` : entries.length === 0 ? html`
+        <div style=${{ textAlign: "center", color: "#8A8175", fontSize: 14, padding: "30px 20px", border: "1px dashed #E5DDCF", borderRadius: 16 }}>Nothing logged for this day yet. Add your first meal above.</div>
+      ` : grouped.filter((g) => g.items.length > 0).map((g) => html`
+        <div key=${g.type} style=${{ marginBottom: 18 }}>
+          <div style=${{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", marginBottom: 8 }}>${g.type}</div>
+          ${g.items.map((item) => html`
+            <div key=${item.id} style=${{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", border: "1px solid #EDE6DA", borderRadius: 14, padding: "12px 14px", marginBottom: 8 }}>
+              <div>
+                <div style=${{ fontSize: 14, fontWeight: 600 }}>${item.name}</div>
+                <div style=${{ fontSize: 12, color: "#8A8175", fontVariantNumeric: "tabular-nums" }}>${item.calories} kcal &middot; P${item.protein} C${item.carbs} F${item.fat}</div>
+              </div>
+              <button onClick=${() => handleDelete(item.id)} style=${{ background: "none", border: "none", padding: 6, display: "flex" }}>
+                <${Trash2} size=${16} color="#C4A79A" />
+              </button>
+            </div>
+          `)}
+        </div>
+      `)}
     </div>
-  );
+  `;
+
+  const planView = html`
+    <div>
+      <div style=${{ marginBottom: 16, fontSize: 13, color: "#8A8175", lineHeight: 1.5 }}>
+        Schedule what you plan to eat on <strong style=${{ color: "#262220" }}>${formatDateLabel(date).toLowerCase()}</strong>. Use the arrows above to plan other days ahead, then tap "Add to log" from the Log tab when you actually eat it.
+      </div>
+      ${plannedGrouped.map((slot) => html`
+        <div key=${slot.type} style=${{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 18, padding: 16, marginBottom: 14 }}>
+          <div style=${{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: slot.items.length > 0 || addingSlot === slot.type ? 10 : 0 }}>
+            <div style=${{ fontSize: 13, fontWeight: 700, color: "#262220" }}>${slot.type}</div>
+            ${addingSlot !== slot.type ? html`
+              <button onClick=${() => openPlanForm(slot.type)} style=${{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "#2F5D50", fontSize: 13, fontWeight: 700 }}>
+                <${Plus} size=${14} /> Add
+              </button>
+            ` : ""}
+          </div>
+          ${slot.items.map((item) => html`
+            <div key=${item.id} style=${{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid #F2ECE1" }}>
+              <div style=${{ display: "flex", alignItems: "center", gap: 8 }}>
+                ${item.addedToLog ? html`<${Check} size=${14} color="#2F5D50" />` : ""}
+                <div>
+                  <div style=${{ fontSize: 14, fontWeight: 600 }}>${item.name}</div>
+                  <div style=${{ fontSize: 12, color: "#8A8175" }}>${item.calories} kcal &middot; P${item.protein} C${item.carbs} F${item.fat}</div>
+                </div>
+              </div>
+              <button onClick=${() => handleDeletePlanEntry(item.id)} style=${{ background: "none", border: "none", padding: 6, display: "flex" }}>
+                <${Trash2} size=${15} color="#C4A79A" />
+              </button>
+            </div>
+          `)}
+          ${addingSlot === slot.type ? html`
+            <${ItemForm}
+              values=${planForm}
+              onChange=${(field, value) => setPlanForm((f) => ({ ...f, [field]: value }))}
+              onSubmit=${(e) => handleAddPlanEntry(e, slot.type)}
+              onCancel=${() => setAddingSlot(null)}
+              submitLabel=${`Add to ${slot.type}`}
+            />
+          ` : ""}
+        </div>
+      `)}
+      ${planError ? html`<div style=${{ color: "#A85736", fontSize: 13, marginTop: 4 }}>${planError}</div>` : ""}
+    </div>
+  `;
+
+  const settingsModal = showSettings ? html`
+    <div style=${{ position: "fixed", inset: 0, background: "rgba(38,34,32,0.4)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 50 }} onClick=${() => setShowSettings(false)}>
+      <div onClick=${(e) => e.stopPropagation()} style=${{ background: "#FBF8F3", borderRadius: 20, padding: 24, width: "100%", maxWidth: 360 }}>
+        <div style=${{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style=${{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 700 }}>Daily targets</div>
+          <button onClick=${() => setShowSettings(false)} style=${{ background: "none", border: "none", display: "flex" }}>
+            <${XIcon} size=${20} color="#8A8175" />
+          </button>
+        </div>
+        <label style=${labelStyle}>Calorie goal (kcal)</label>
+        <input type="number" value=${draftSettings.calorieGoal} onInput=${(e) => setDraftSettings((s) => ({ ...s, calorieGoal: e.target.value }))} style=${inputStyle} />
+        <label style=${labelStyle}>Protein goal (g)</label>
+        <input type="number" value=${draftSettings.proteinGoal} onInput=${(e) => setDraftSettings((s) => ({ ...s, proteinGoal: e.target.value }))} style=${inputStyle} />
+        <label style=${labelStyle}>Carb goal (g)</label>
+        <input type="number" value=${draftSettings.carbGoal} onInput=${(e) => setDraftSettings((s) => ({ ...s, carbGoal: e.target.value }))} style=${inputStyle} />
+        <label style=${labelStyle}>Fat goal (g)</label>
+        <input type="number" value=${draftSettings.fatGoal} onInput=${(e) => setDraftSettings((s) => ({ ...s, fatGoal: e.target.value }))} style=${inputStyle} />
+        <p style=${{ fontSize: 12, color: "#8A8175", marginTop: 10, lineHeight: 1.5 }}>
+          A common starting point for gradual weight loss is a moderate calorie deficit combined with enough protein to preserve muscle — adjust these to whatever your own plan calls for.
+        </p>
+        <button onClick=${handleSaveSettings} style=${{ marginTop: 10, width: "100%", background: "#2F5D50", color: "#fff", border: "none", borderRadius: 12, padding: "12px 0", fontSize: 14, fontWeight: 700 }}>Save targets</button>
+      </div>
+    </div>
+  ` : "";
+
+  return html`
+    <div style=${{ fontFamily: "'Inter', sans-serif", background: "#FBF8F3", color: "#262220", minHeight: "100vh", padding: "28px 20px 48px", maxWidth: 560, margin: "0 auto" }}>
+      <div style=${{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 22 }}>
+        <div>
+          <h1 style=${{ fontFamily: "'Fraunces', serif", fontSize: 30, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>Plateful</h1>
+          <p style=${{ margin: "4px 0 0", fontSize: 13, color: "#8A8175" }}>Track meals, hit your deficit, day by day.</p>
+        </div>
+        <button onClick=${() => { setDraftSettings(settings); setShowSettings(true); }}
+          style=${{ background: "#fff", border: "1px solid #E5DDCF", borderRadius: 10, width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <${SettingsIconCmp} size=${18} color="#262220" />
+        </button>
+      </div>
+
+      <div style=${{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 16 }}>
+        <button onClick=${() => setDate((d) => addDays(d, -1))} style=${{ background: "none", border: "none", padding: 6, display: "flex" }}>
+          <${ChevronLeft} size=${20} color="#8A8175" />
+        </button>
+        <div style=${{ fontSize: 15, fontWeight: 600, minWidth: 130, textAlign: "center" }}>${formatDateLabel(date)}</div>
+        <button onClick=${() => setDate((d) => addDays(d, 1))} style=${{ background: "none", border: "none", padding: 6, display: "flex" }}>
+          <${ChevronRight} size=${20} color="#8A8175" />
+        </button>
+      </div>
+
+      <div style=${{ display: "flex", background: "#EDE6DA", borderRadius: 12, padding: 4, marginBottom: 22 }}>
+        <button onClick=${() => setView("log")} style=${{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", borderRadius: 9, border: "none", background: view === "log" ? "#fff" : "transparent", color: view === "log" ? "#262220" : "#8A8175", fontSize: 13, fontWeight: 700, boxShadow: view === "log" ? "0 1px 2px rgba(0,0,0,0.06)" : "none" }}>
+          <${UtensilsCrossed} size=${14} /> Log
+        </button>
+        <button onClick=${() => setView("plan")} style=${{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", borderRadius: 9, border: "none", background: view === "plan" ? "#fff" : "transparent", color: view === "plan" ? "#262220" : "#8A8175", fontSize: 13, fontWeight: 700, boxShadow: view === "plan" ? "0 1px 2px rgba(0,0,0,0.06)" : "none" }}>
+          <${CalendarDays} size=${14} /> Plan${planEntries.length > 0 ? ` (${planEntries.length})` : ""}
+        </button>
+      </div>
+
+      ${view === "log" ? logView : planView}
+      ${settingsModal}
+    </div>
+  `;
 }
 
-const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #E5DDCF", fontSize: 14, fontFamily: "inherit", background: "#FBF8F3", color: "#262220" };
-const labelStyle = { display: "block", fontSize: 12, fontWeight: 600, color: "#8A8175", marginTop: 12, marginBottom: 6 };
-
 const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<Plateful />);
+root.render(html`<${Plateful} />`);
 </script>
 
 <script>
