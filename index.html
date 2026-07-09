@@ -76,6 +76,29 @@ const DEFAULT_SETTINGS = { calorieGoal: 1800, proteinGoal: 120, carbGoal: 170, f
 const EMPTY_ITEM_FORM = { name: "", calories: "", protein: "", carbs: "", fat: "" };
 const EMPTY_WEIGHT_FORM = { weight: "" };
 
+// Approximate calories burned per 30 minutes for an average adult at moderate effort.
+// Actual burn varies by body weight, intensity, and fitness level — these are rough guides, not precise measurements.
+const EXERCISE_LIBRARY = [
+  { category: "Cardio", items: [
+    { name: "Brisk walk", caloriesPer30: 150 },
+    { name: "Running", caloriesPer30: 300 },
+    { name: "Cycling", caloriesPer30: 260 },
+    { name: "Swimming", caloriesPer30: 220 },
+    { name: "Jump rope", caloriesPer30: 300 },
+    { name: "Dancing", caloriesPer30: 180 },
+  ]},
+  { category: "Strength", items: [
+    { name: "Bodyweight circuit", caloriesPer30: 180 },
+    { name: "Weight lifting", caloriesPer30: 130 },
+    { name: "Pilates", caloriesPer30: 140 },
+  ]},
+  { category: "Other", items: [
+    { name: "Yoga", caloriesPer30: 120 },
+    { name: "Hiking", caloriesPer30: 180 },
+    { name: "Stretching", caloriesPer30: 90 },
+  ]},
+];
+
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
 function formatDateLabel(dateStr) {
@@ -256,6 +279,8 @@ function MainApp({ user, onSignOut }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [entries, setEntries] = useState([]);
   const [planEntries, setPlanEntries] = useState([]);
+  const [exerciseEntries, setExerciseEntries] = useState([]);
+  const [showExerciseLibrary, setShowExerciseLibrary] = useState(false);
   const [weights, setWeights] = useState([]);
   const [weightForm, setWeightForm] = useState(EMPTY_WEIGHT_FORM);
   const [weightError, setWeightError] = useState("");
@@ -347,15 +372,21 @@ function MainApp({ user, onSignOut }) {
     setLoading(true);
     (async () => {
       try {
-        const [logRes, planRes] = await Promise.all([storage.get(`plateful:log:${date}`), storage.get(`plateful:plan:${date}`)]);
+        const [logRes, planRes, exRes] = await Promise.all([
+          storage.get(`plateful:log:${date}`),
+          storage.get(`plateful:plan:${date}`),
+          storage.get(`plateful:exercise:${date}`),
+        ]);
         setEntries(logRes && logRes.value ? JSON.parse(logRes.value) : []);
         setPlanEntries(planRes && planRes.value ? JSON.parse(planRes.value) : []);
+        setExerciseEntries(exRes && exRes.value ? JSON.parse(exRes.value) : []);
       } catch (e) {
-        setEntries([]); setPlanEntries([]);
+        setEntries([]); setPlanEntries([]); setExerciseEntries([]);
       } finally { setLoading(false); }
     })();
     setAddingSlot(null);
     setPlanError("");
+    setShowExerciseLibrary(false);
   }, [date]);
 
   const saveEntries = useCallback(async (next) => {
@@ -369,6 +400,34 @@ function MainApp({ user, onSignOut }) {
     try { await storage.set(`plateful:plan:${date}`, JSON.stringify(next)); }
     catch (e) { setPlanError("Couldn't save plan — try again."); }
   }, [date]);
+
+  const saveExerciseEntries = useCallback(async (next) => {
+    setExerciseEntries(next);
+    try { await storage.set(`plateful:exercise:${date}`, JSON.stringify(next)); }
+    catch (e) { setError("Couldn't save exercise — try again."); }
+  }, [date]);
+
+  function handleAddExercise(item) {
+    const minutes = 30;
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: item.name,
+      minutes,
+      caloriesPer30: item.caloriesPer30,
+      calories: Math.round(item.caloriesPer30 * (minutes / 30)),
+    };
+    saveExerciseEntries([...exerciseEntries, entry]);
+  }
+
+  function handleUpdateExerciseMinutes(id, minutes) {
+    const clean = Math.max(0, Number(minutes) || 0);
+    const next = exerciseEntries.map((e) => (e.id === id ? { ...e, minutes: clean, calories: Math.round(e.caloriesPer30 * (clean / 30)) } : e));
+    saveExerciseEntries(next);
+  }
+
+  function handleDeleteExercise(id) {
+    saveExerciseEntries(exerciseEntries.filter((e) => e.id !== id));
+  }
 
   const saveWeights = useCallback(async (next) => {
     setWeights(next);
@@ -400,7 +459,9 @@ function MainApp({ user, onSignOut }) {
     fat: acc.fat + Number(e.fat || 0),
   }), { calories: 0, protein: 0, carbs: 0, fat: 0 }), [entries]);
 
-  const remaining = settings.calorieGoal - totals.calories;
+  const exerciseTotal = useMemo(() => exerciseEntries.reduce((a, e) => a + Number(e.calories || 0), 0), [exerciseEntries]);
+  const effectiveGoal = settings.calorieGoal + exerciseTotal;
+  const remaining = effectiveGoal - totals.calories;
 
   function handleFormChange(field, value) { setForm((f) => ({ ...f, [field]: value })); }
 
@@ -467,7 +528,7 @@ function MainApp({ user, onSignOut }) {
   const grouped = MEAL_TYPES.map((type) => ({ type, items: entries.filter((e) => e.mealType === type) }));
   const plannedGrouped = MEAL_TYPES.map((type) => ({ type, items: planEntries.filter((p) => p.mealType === type) }));
   const unloggedPlanItems = planEntries.filter((p) => !p.addedToLog);
-  const caloriePct = settings.calorieGoal > 0 ? totals.calories / settings.calorieGoal : 0;
+  const caloriePct = effectiveGoal > 0 ? totals.calories / effectiveGoal : 0;
 
   const mealTypeButtons = html`
     <div style=${{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
@@ -493,11 +554,63 @@ function MainApp({ user, onSignOut }) {
             </div>
           </div>
         </div>
+        ${exerciseTotal > 0 ? html`
+          <div style=${{ textAlign: "center", fontSize: 12, color: "#2F5D50", fontWeight: 600, marginBottom: 4 }}>includes +${exerciseTotal} kcal from exercise</div>
+        ` : ""}
         <div style=${{ display: "flex", justifyContent: "center", gap: 28 }}>
           <${MacroRing} label="Protein" consumed=${totals.protein} goal=${settings.proteinGoal} color="#A85736" />
           <${MacroRing} label="Carbs" consumed=${totals.carbs} goal=${settings.carbGoal} color="#C99A2E" />
           <${MacroRing} label="Fat" consumed=${totals.fat} goal=${settings.fatGoal} color="#55738C" />
         </div>
+      </div>
+
+      <div style=${{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: 18, marginBottom: 22 }}>
+        <div style=${{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: exerciseEntries.length > 0 || showExerciseLibrary ? 12 : 0 }}>
+          <div style=${{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase" }}>Exercise</div>
+          <button onClick=${() => setShowExerciseLibrary((s) => !s)} style=${{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "#2F5D50", fontSize: 13, fontWeight: 700 }}>
+            <${Plus} size=${14} /> ${showExerciseLibrary ? "Close" : "Add"}
+          </button>
+        </div>
+
+        ${exerciseEntries.map((e) => html`
+          <div key=${e.id} style=${{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid #F2ECE1" }}>
+            <div>
+              <div style=${{ fontSize: 14, fontWeight: 600 }}>${e.name}</div>
+              <div style=${{ fontSize: 12, color: "#8A8175" }}>${e.calories} kcal burned</div>
+            </div>
+            <div style=${{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="number" value=${e.minutes} onInput=${(ev) => handleUpdateExerciseMinutes(e.id, ev.target.value)} style=${{ width: 56, padding: "6px 8px", borderRadius: 8, border: "1px solid #E5DDCF", fontSize: 13, textAlign: "center" }} />
+              <span style=${{ fontSize: 12, color: "#8A8175" }}>min</span>
+              <button onClick=${() => handleDeleteExercise(e.id)} style=${{ background: "none", border: "none", padding: 4, display: "flex" }}>
+                <${Trash2} size=${14} color="#C4A79A" />
+              </button>
+            </div>
+          </div>
+        `)}
+
+        ${showExerciseLibrary ? html`
+          <div style=${{ marginTop: exerciseEntries.length > 0 ? 12 : 0 }}>
+            ${EXERCISE_LIBRARY.map((cat) => html`
+              <div key=${cat.category} style=${{ marginBottom: 12 }}>
+                <div style=${{ fontSize: 11, fontWeight: 700, color: "#8A8175", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>${cat.category}</div>
+                ${cat.items.map((item) => html`
+                  <div key=${item.name} style=${{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 4px", borderBottom: "1px solid #F2ECE1" }}>
+                    <div>
+                      <div style=${{ fontSize: 14, fontWeight: 500 }}>${item.name}</div>
+                      <div style=${{ fontSize: 11, color: "#8A8175" }}>~${item.caloriesPer30} kcal / 30 min</div>
+                    </div>
+                    <button onClick=${() => handleAddExercise(item)} style=${{ background: "#2F5D50", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center" }}>
+                      <${Plus} size=${12} />
+                    </button>
+                  </div>
+                `)}
+              </div>
+            `)}
+            <div style=${{ fontSize: 11, color: "#8A8175", marginTop: 6, lineHeight: 1.5 }}>
+              Estimates are approximate and vary by body weight and intensity — use them as a rough guide.
+            </div>
+          </div>
+        ` : ""}
       </div>
 
       ${unloggedPlanItems.length > 0 ? html`
