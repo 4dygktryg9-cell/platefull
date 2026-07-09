@@ -115,6 +115,8 @@ const UtensilsCrossed = (p) => html`<${Icon} ...${p}>🍽<//>`;
 const Check = (p) => html`<${Icon} ...${p}>✓<//>`;
 const Scale = (p) => html`<${Icon} ...${p}>⚖️<//>`;
 const LogOut = (p) => html`<${Icon} ...${p}>↪<//>`;
+const Flame = (p) => html`<${Icon} ...${p}>🔥<//>`;
+const TrendingUp = (p) => html`<${Icon} ...${p}>📈<//>`;
 
 function Ring({ size, stroke, pct, color, trackColor }) {
   const r = (size - stroke) / 2;
@@ -257,6 +259,9 @@ function MainApp({ user, onSignOut }) {
   const [weights, setWeights] = useState([]);
   const [weightForm, setWeightForm] = useState(EMPTY_WEIGHT_FORM);
   const [weightError, setWeightError] = useState("");
+  const [weekStats, setWeekStats] = useState(null);
+  const [streak, setStreak] = useState(0);
+  const [insightsLoading, setInsightsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [draftSettings, setDraftSettings] = useState(DEFAULT_SETTINGS);
@@ -280,6 +285,51 @@ function MainApp({ user, onSignOut }) {
     setWeightForm({ weight: existing ? String(existing.weight) : "" });
     setWeightError("");
   }, [date, weights]);
+
+  useEffect(() => {
+    if (view !== "insights") return;
+    let cancelled = false;
+    (async () => {
+      setInsightsLoading(true);
+      const today = todayStr();
+      let totalCal = 0, totalProtein = 0, totalCarbs = 0, totalFat = 0, loggedDays = 0, onTrackDays = 0;
+      for (let i = 0; i < 7; i++) {
+        const d = addDays(today, -i);
+        const res = await storage.get(`plateful:log:${d}`);
+        const dayEntries = res && res.value ? JSON.parse(res.value) : [];
+        if (dayEntries.length > 0) {
+          loggedDays++;
+          const dayTotal = dayEntries.reduce((a, e) => a + Number(e.calories || 0), 0);
+          totalCal += dayTotal;
+          totalProtein += dayEntries.reduce((a, e) => a + Number(e.protein || 0), 0);
+          totalCarbs += dayEntries.reduce((a, e) => a + Number(e.carbs || 0), 0);
+          totalFat += dayEntries.reduce((a, e) => a + Number(e.fat || 0), 0);
+          if (dayTotal > 0 && dayTotal <= settings.calorieGoal) onTrackDays++;
+        }
+      }
+      let streakCount = 0;
+      for (let i = 0; i < 90; i++) {
+        const d = addDays(today, -i);
+        const res = await storage.get(`plateful:log:${d}`);
+        const dayEntries = res && res.value ? JSON.parse(res.value) : [];
+        if (dayEntries.length > 0) streakCount++;
+        else break;
+      }
+      if (!cancelled) {
+        setWeekStats({
+          avgCalories: loggedDays ? Math.round(totalCal / loggedDays) : 0,
+          avgProtein: loggedDays ? Math.round(totalProtein / loggedDays) : 0,
+          avgCarbs: loggedDays ? Math.round(totalCarbs / loggedDays) : 0,
+          avgFat: loggedDays ? Math.round(totalFat / loggedDays) : 0,
+          loggedDays,
+          onTrackDays,
+        });
+        setStreak(streakCount);
+        setInsightsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [view, settings.calorieGoal]);
 
   useEffect(() => {
     (async () => {
@@ -586,6 +636,62 @@ function MainApp({ user, onSignOut }) {
     </div>
   `;
 
+  const weightChange = useMemo(() => {
+    const today = todayStr();
+    const cutoff = addDays(today, -6);
+    const recent = weights.filter((w) => w.date >= cutoff).sort((a, b) => a.date.localeCompare(b.date));
+    if (recent.length < 2) return null;
+    const diff = +(recent[recent.length - 1].weight - recent[0].weight).toFixed(1);
+    return { diff, from: recent[0], to: recent[recent.length - 1] };
+  }, [weights]);
+
+  const insightsView = html`
+    <div>
+      <div style=${{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: 22, marginBottom: 22, textAlign: "center" }}>
+        <div style=${{ fontSize: 34, marginBottom: 4 }}>${streak > 0 ? "🔥" : "🌱"}</div>
+        <div style=${{ fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 700 }}>${streak} ${streak === 1 ? "day" : "days"}</div>
+        <div style=${{ fontSize: 13, color: "#8A8175", marginTop: 2 }}>${streak > 0 ? "current logging streak" : "log a meal today to start a streak"}</div>
+      </div>
+
+      <div style=${{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: 20, marginBottom: 22 }}>
+        <div style=${{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", marginBottom: 14 }}>Last 7 days</div>
+        ${insightsLoading ? html`
+          <div style=${{ textAlign: "center", color: "#8A8175", fontSize: 14, padding: 10 }}>Loading...</div>
+        ` : !weekStats || weekStats.loggedDays === 0 ? html`
+          <div style=${{ textAlign: "center", color: "#8A8175", fontSize: 13, padding: "10px 0" }}>No meals logged in the last week yet.</div>
+        ` : html`
+          <div style=${{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+            <div>
+              <div style=${{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 700 }}>${weekStats.avgCalories}</div>
+              <div style=${{ fontSize: 12, color: "#8A8175" }}>avg kcal/day</div>
+            </div>
+            <div>
+              <div style=${{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 700 }}>${weekStats.onTrackDays}/${weekStats.loggedDays}</div>
+              <div style=${{ fontSize: 12, color: "#8A8175" }}>days on target</div>
+            </div>
+          </div>
+          <div style=${{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#8A8175", borderTop: "1px solid #F2ECE1", paddingTop: 10 }}>
+            <span>P ${weekStats.avgProtein}g avg</span>
+            <span>C ${weekStats.avgCarbs}g avg</span>
+            <span>F ${weekStats.avgFat}g avg</span>
+          </div>
+        `}
+      </div>
+
+      <div style=${{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: 20 }}>
+        <div style=${{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", marginBottom: 10 }}>Weight, last 7 days</div>
+        ${weightChange ? html`
+          <div style=${{ fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 700, color: weightChange.diff <= 0 ? "#2F5D50" : "#A85736" }}>
+            ${weightChange.diff > 0 ? "+" : ""}${weightChange.diff} ${settings.weightUnit}
+          </div>
+          <div style=${{ fontSize: 12, color: "#8A8175", marginTop: 2 }}>since ${formatDateLabel(weightChange.from.date).toLowerCase()}</div>
+        ` : html`
+          <div style=${{ textAlign: "center", color: "#8A8175", fontSize: 13, padding: "6px 0" }}>Log weight on two different days this week to see a change.</div>
+        `}
+      </div>
+    </div>
+  `;
+
   const settingsModal = showSettings ? html`
     <div style=${{ position: "fixed", inset: 0, background: "rgba(38,34,32,0.4)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 50 }} onClick=${() => setShowSettings(false)}>
       <div onClick=${(e) => e.stopPropagation()} style=${{ background: "#FBF8F3", borderRadius: 20, padding: 24, width: "100%", maxWidth: 360 }}>
@@ -661,9 +767,12 @@ function MainApp({ user, onSignOut }) {
         <button onClick=${() => setView("weight")} style=${{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", borderRadius: 9, border: "none", background: view === "weight" ? "#fff" : "transparent", color: view === "weight" ? "#262220" : "#8A8175", fontSize: 13, fontWeight: 700, boxShadow: view === "weight" ? "0 1px 2px rgba(0,0,0,0.06)" : "none" }}>
           <${Scale} size=${14} /> Weight
         </button>
+        <button onClick=${() => setView("insights")} style=${{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", borderRadius: 9, border: "none", background: view === "insights" ? "#fff" : "transparent", color: view === "insights" ? "#262220" : "#8A8175", fontSize: 13, fontWeight: 700, boxShadow: view === "insights" ? "0 1px 2px rgba(0,0,0,0.06)" : "none" }}>
+          <${TrendingUp} size=${14} /> Trends
+        </button>
       </div>
 
-      ${view === "log" ? logView : view === "plan" ? planView : weightView}
+      ${view === "log" ? logView : view === "plan" ? planView : view === "weight" ? weightView : insightsView}
       ${settingsModal}
     </div>
   `;
