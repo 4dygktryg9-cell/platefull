@@ -20,9 +20,12 @@
 
 <style>
   html, body { margin: 0; padding: 0; background: #FBF8F3; }
+  body { background: radial-gradient(circle at 20% -10%, #F3ECDD 0%, #FBF8F3 55%); }
   * { box-sizing: border-box; }
   input:focus, select:focus, button:focus-visible { outline: 2px solid #2F5D50; outline-offset: 2px; }
   button { cursor: pointer; font-family: inherit; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .fade-in { animation: fadeIn 0.4s ease; }
 </style>
 </head>
 <body>
@@ -31,13 +34,29 @@
 <!-- React (classic scripts, attach to window.React / window.ReactDOM) -->
 <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 
 <!-- App code: plain ES module, no build step, no in-browser transpiler -->
 <script type="module">
 import htm from "https://unpkg.com/htm@3.1.1?module";
 
 const html = htm.bind(React.createElement);
-const { useState, useEffect, useCallback, useMemo } = React;
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+// TODO: Replace with your own Google Client ID from Google Cloud Console (see setup guide)
+const GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID_HERE.apps.googleusercontent.com";
+
+function decodeJwt(token) {
+  const base64Url = token.split(".")[1];
+  const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+  const jsonPayload = decodeURIComponent(
+    atob(base64)
+      .split("")
+      .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+      .join("")
+  );
+  return JSON.parse(jsonPayload);
+}
 
 // ---- Local storage helper ----
 const storage = {
@@ -53,8 +72,9 @@ const storage = {
 };
 
 const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner", "Snacks"];
-const DEFAULT_SETTINGS = { calorieGoal: 1800, proteinGoal: 120, carbGoal: 170, fatGoal: 55 };
+const DEFAULT_SETTINGS = { calorieGoal: 1800, proteinGoal: 120, carbGoal: 170, fatGoal: 55, weightUnit: "kg" };
 const EMPTY_ITEM_FORM = { name: "", calories: "", protein: "", carbs: "", fat: "" };
+const EMPTY_WEIGHT_FORM = { weight: "" };
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
@@ -93,6 +113,8 @@ const XIcon = (p) => html`<${Icon} ...${p}>✕<//>`;
 const CalendarDays = (p) => html`<${Icon} ...${p}>📅<//>`;
 const UtensilsCrossed = (p) => html`<${Icon} ...${p}>🍽<//>`;
 const Check = (p) => html`<${Icon} ...${p}>✓<//>`;
+const Scale = (p) => html`<${Icon} ...${p}>⚖️<//>`;
+const LogOut = (p) => html`<${Icon} ...${p}>↪<//>`;
 
 function Ring({ size, stroke, pct, color, trackColor }) {
   const r = (size - stroke) / 2;
@@ -154,12 +176,87 @@ function ItemForm({ values, onChange, onSubmit, onCancel, submitLabel }) {
   `;
 }
 
-function Plateful() {
+function WelcomeScreen({ onSignIn, onSkip }) {
+  const btnRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    function tryInit() {
+      if (cancelled) return;
+      if (window.google && window.google.accounts && window.google.accounts.id && btnRef.current) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: (response) => {
+              try {
+                const profile = decodeJwt(response.credential);
+                onSignIn({ name: profile.given_name || profile.name || "there", picture: profile.picture || "", email: profile.email || "" });
+              } catch (e) {
+                onSignIn({ name: "there", picture: "", email: "" });
+              }
+            },
+          });
+          window.google.accounts.id.renderButton(btnRef.current, { theme: "filled_black", size: "large", shape: "pill", width: 260, text: "continue_with" });
+        } catch (e) {}
+      } else {
+        setTimeout(tryInit, 300);
+      }
+    }
+    tryInit();
+    return () => { cancelled = true; };
+  }, []);
+
+  return html`
+    <div class="fade-in" style=${{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", textAlign: "center" }}>
+      <div style=${{ fontSize: 46, marginBottom: 6 }}>🍽️</div>
+      <h1 style=${{ fontFamily: "'Fraunces', serif", fontSize: 34, fontWeight: 700, margin: "0 0 8px", color: "#262220" }}>Welcome to Plateful</h1>
+      <p style=${{ fontSize: 15, color: "#8A8175", maxWidth: 320, lineHeight: 1.6, marginBottom: 32 }}>
+        A cozy little place to track meals, plan ahead, and watch your progress add up — one plate at a time.
+      </p>
+      <div ref=${btnRef}></div>
+      <button onClick=${onSkip} style=${{ marginTop: 18, background: "none", border: "none", color: "#8A8175", fontSize: 13, fontWeight: 600, textDecoration: "underline", textUnderlineOffset: "3px" }}>
+        Continue without signing in
+      </button>
+    </div>
+  `;
+}
+
+function WeightChart({ entries, unit }) {
+  if (!entries || entries.length < 2) return null;
+  const w = 500, h = 160, padX = 20, padY = 20;
+  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date)).slice(-20);
+  const weights = sorted.map((e) => e.weight);
+  const min = Math.min(...weights);
+  const max = Math.max(...weights);
+  const range = max - min || 1;
+  const stepX = sorted.length > 1 ? (w - padX * 2) / (sorted.length - 1) : 0;
+  const points = sorted.map((e, i) => ({
+    x: padX + i * stepX,
+    y: padY + (1 - (e.weight - min) / range) * (h - padY * 2),
+  }));
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+
+  return html`
+    <svg viewBox="0 0 ${w} ${h}" style=${{ width: "100%", height: 160 }}>
+      <path d=${pathD} fill="none" stroke="#2F5D50" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+      ${points.map((p, i) => html`<circle key=${i} cx=${p.x} cy=${p.y} r="3.5" fill="#2F5D50" />`)}
+      <text x=${points[0].x} y=${h - 4} font-size="11" fill="#8A8175">${formatDateLabel(sorted[0].date)}</text>
+      <text x=${points[points.length - 1].x} y=${h - 4} font-size="11" fill="#8A8175" text-anchor="end">${formatDateLabel(sorted[sorted.length - 1].date)}</text>
+      <text x=${w - padX} y=${padY} font-size="11" fill="#8A8175" text-anchor="end">${max}${unit}</text>
+      <text x=${w - padX} y=${h - padY} font-size="11" fill="#8A8175" text-anchor="end">${min}${unit}</text>
+    </svg>
+  `;
+}
+
+function MainApp({ user, onSignOut }) {
   const [date, setDate] = useState(todayStr());
   const [view, setView] = useState("log");
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [entries, setEntries] = useState([]);
   const [planEntries, setPlanEntries] = useState([]);
+  const [weights, setWeights] = useState([]);
+  const [weightForm, setWeightForm] = useState(EMPTY_WEIGHT_FORM);
+  const [weightError, setWeightError] = useState("");
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [draftSettings, setDraftSettings] = useState(DEFAULT_SETTINGS);
@@ -168,6 +265,21 @@ function Plateful() {
   const [planForm, setPlanForm] = useState(EMPTY_ITEM_FORM);
   const [error, setError] = useState("");
   const [planError, setPlanError] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await storage.get("plateful:weights");
+        setWeights(res && res.value ? JSON.parse(res.value) : []);
+      } catch (e) { setWeights([]); }
+    })();
+  }, []);
+
+  useEffect(() => {
+    const existing = weights.find((w) => w.date === date);
+    setWeightForm({ weight: existing ? String(existing.weight) : "" });
+    setWeightError("");
+  }, [date, weights]);
 
   useEffect(() => {
     (async () => {
@@ -208,6 +320,29 @@ function Plateful() {
     catch (e) { setPlanError("Couldn't save plan — try again."); }
   }, [date]);
 
+  const saveWeights = useCallback(async (next) => {
+    setWeights(next);
+    try { await storage.set("plateful:weights", JSON.stringify(next)); }
+    catch (e) { setWeightError("Couldn't save — try again."); }
+  }, []);
+
+  async function handleAddWeight(e) {
+    e.preventDefault();
+    setWeightError("");
+    if (weightForm.weight === "" || isNaN(Number(weightForm.weight))) { setWeightError("Enter a weight."); return; }
+    const w = Number(weightForm.weight);
+    const existingIdx = weights.findIndex((x) => x.date === date);
+    let next;
+    if (existingIdx >= 0) {
+      next = weights.map((x, i) => (i === existingIdx ? { ...x, weight: w } : x));
+    } else {
+      next = [...weights, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, date, weight: w }];
+    }
+    await saveWeights(next);
+  }
+
+  async function handleDeleteWeight(id) { await saveWeights(weights.filter((w) => w.id !== id)); }
+
   const totals = useMemo(() => entries.reduce((acc, e) => ({
     calories: acc.calories + Number(e.calories || 0),
     protein: acc.protein + Number(e.protein || 0),
@@ -242,6 +377,7 @@ function Plateful() {
       proteinGoal: Number(draftSettings.proteinGoal) || 0,
       carbGoal: Number(draftSettings.carbGoal) || 0,
       fatGoal: Number(draftSettings.fatGoal) || 0,
+      weightUnit: draftSettings.weightUnit || "kg",
     };
     setSettings(clean);
     try { await storage.set("plateful:settings", JSON.stringify(clean)); }
@@ -414,6 +550,42 @@ function Plateful() {
     </div>
   `;
 
+  const sortedWeightsDesc = [...weights].sort((a, b) => b.date.localeCompare(a.date));
+
+  const weightView = html`
+    <div>
+      <div style=${{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: 20, marginBottom: 22 }}>
+        <div style=${{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", marginBottom: 14 }}>Weight trend</div>
+        ${weights.length >= 2 ? html`<${WeightChart} entries=${weights} unit=${settings.weightUnit} />` : html`
+          <div style=${{ textAlign: "center", color: "#8A8175", fontSize: 13, padding: "20px 10px" }}>Log a couple of entries to see your trend line here.</div>
+        `}
+      </div>
+
+      <form onSubmit=${handleAddWeight} style=${{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: 20, marginBottom: 22 }}>
+        <div style=${{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", marginBottom: 12 }}>Weight for ${formatDateLabel(date).toLowerCase()}</div>
+        <div style=${{ display: "flex", gap: 8 }}>
+          <input type="number" step="0.1" placeholder=${`Weight (${settings.weightUnit})`} value=${weightForm.weight} onInput=${(e) => setWeightForm({ weight: e.target.value })} style=${inputStyle} />
+          <button type="submit" style=${{ background: "#2F5D50", color: "#fff", border: "none", borderRadius: 10, padding: "0 20px", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>Save</button>
+        </div>
+        ${weightError ? html`<div style=${{ color: "#A85736", fontSize: 13, marginTop: 8 }}>${weightError}</div>` : ""}
+      </form>
+
+      ${sortedWeightsDesc.length === 0 ? html`
+        <div style=${{ textAlign: "center", color: "#8A8175", fontSize: 14, padding: "30px 20px", border: "1px dashed #E5DDCF", borderRadius: 16 }}>No weight entries yet.</div>
+      ` : sortedWeightsDesc.map((w) => html`
+        <div key=${w.id} style=${{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", border: "1px solid #EDE6DA", borderRadius: 14, padding: "12px 14px", marginBottom: 8 }}>
+          <div style=${{ fontSize: 14, fontWeight: 600 }}>${formatDateLabel(w.date)}</div>
+          <div style=${{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style=${{ fontSize: 14, fontVariantNumeric: "tabular-nums" }}>${w.weight} ${settings.weightUnit}</div>
+            <button onClick=${() => handleDeleteWeight(w.id)} style=${{ background: "none", border: "none", padding: 4, display: "flex" }}>
+              <${Trash2} size=${15} color="#C4A79A" />
+            </button>
+          </div>
+        </div>
+      `)}
+    </div>
+  `;
+
   const settingsModal = showSettings ? html`
     <div style=${{ position: "fixed", inset: 0, background: "rgba(38,34,32,0.4)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 50 }} onClick=${() => setShowSettings(false)}>
       <div onClick=${(e) => e.stopPropagation()} style=${{ background: "#FBF8F3", borderRadius: 20, padding: 24, width: "100%", maxWidth: 360 }}>
@@ -431,10 +603,24 @@ function Plateful() {
         <input type="number" value=${draftSettings.carbGoal} onInput=${(e) => setDraftSettings((s) => ({ ...s, carbGoal: e.target.value }))} style=${inputStyle} />
         <label style=${labelStyle}>Fat goal (g)</label>
         <input type="number" value=${draftSettings.fatGoal} onInput=${(e) => setDraftSettings((s) => ({ ...s, fatGoal: e.target.value }))} style=${inputStyle} />
+        <label style=${labelStyle}>Weight unit</label>
+        <div style=${{ display: "flex", gap: 8 }}>
+          ${["kg", "lb"].map((u) => html`
+            <button type="button" key=${u} onClick=${() => setDraftSettings((s) => ({ ...s, weightUnit: u }))}
+              style=${{ flex: 1, padding: "8px 0", borderRadius: 999, border: draftSettings.weightUnit === u ? "1px solid #2F5D50" : "1px solid #E5DDCF", background: draftSettings.weightUnit === u ? "#2F5D50" : "#fff", color: draftSettings.weightUnit === u ? "#fff" : "#262220", fontSize: 13, fontWeight: 600 }}>
+              ${u}
+            </button>
+          `)}
+        </div>
         <p style=${{ fontSize: 12, color: "#8A8175", marginTop: 10, lineHeight: 1.5 }}>
           A common starting point for gradual weight loss is a moderate calorie deficit combined with enough protein to preserve muscle — adjust these to whatever your own plan calls for.
         </p>
         <button onClick=${handleSaveSettings} style=${{ marginTop: 10, width: "100%", background: "#2F5D50", color: "#fff", border: "none", borderRadius: 12, padding: "12px 0", fontSize: 14, fontWeight: 700 }}>Save targets</button>
+        ${user && !user.guest ? html`
+          <button onClick=${onSignOut} style=${{ marginTop: 10, width: "100%", background: "none", color: "#A85736", border: "1px solid #EAD9CE", borderRadius: 12, padding: "10px 0", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <${LogOut} size=${14} /> Sign out
+          </button>
+        ` : ""}
       </div>
     </div>
   ` : "";
@@ -444,12 +630,15 @@ function Plateful() {
       <div style=${{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 22 }}>
         <div>
           <h1 style=${{ fontFamily: "'Fraunces', serif", fontSize: 30, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>Plateful</h1>
-          <p style=${{ margin: "4px 0 0", fontSize: 13, color: "#8A8175" }}>Track meals, hit your deficit, day by day.</p>
+          <p style=${{ margin: "4px 0 0", fontSize: 13, color: "#8A8175" }}>${user && user.name ? `Welcome back, ${user.name} 👋` : "Track meals, hit your deficit, day by day."}</p>
         </div>
-        <button onClick=${() => { setDraftSettings(settings); setShowSettings(true); }}
-          style=${{ background: "#fff", border: "1px solid #E5DDCF", borderRadius: 10, width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <${SettingsIconCmp} size=${18} color="#262220" />
-        </button>
+        <div style=${{ display: "flex", alignItems: "center", gap: 10 }}>
+          ${user && user.picture ? html`<img src=${user.picture} alt="" style=${{ width: 36, height: 36, borderRadius: "50%", border: "1px solid #E5DDCF" }} />` : ""}
+          <button onClick=${() => { setDraftSettings(settings); setShowSettings(true); }}
+            style=${{ background: "#fff", border: "1px solid #E5DDCF", borderRadius: 10, width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <${SettingsIconCmp} size=${18} color="#262220" />
+          </button>
+        </div>
       </div>
 
       <div style=${{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 16 }}>
@@ -469,16 +658,52 @@ function Plateful() {
         <button onClick=${() => setView("plan")} style=${{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", borderRadius: 9, border: "none", background: view === "plan" ? "#fff" : "transparent", color: view === "plan" ? "#262220" : "#8A8175", fontSize: 13, fontWeight: 700, boxShadow: view === "plan" ? "0 1px 2px rgba(0,0,0,0.06)" : "none" }}>
           <${CalendarDays} size=${14} /> Plan${planEntries.length > 0 ? ` (${planEntries.length})` : ""}
         </button>
+        <button onClick=${() => setView("weight")} style=${{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", borderRadius: 9, border: "none", background: view === "weight" ? "#fff" : "transparent", color: view === "weight" ? "#262220" : "#8A8175", fontSize: 13, fontWeight: 700, boxShadow: view === "weight" ? "0 1px 2px rgba(0,0,0,0.06)" : "none" }}>
+          <${Scale} size=${14} /> Weight
+        </button>
       </div>
 
-      ${view === "log" ? logView : planView}
+      ${view === "log" ? logView : view === "plan" ? planView : weightView}
       ${settingsModal}
     </div>
   `;
 }
 
+function App() {
+  const [user, setUser] = useState(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await storage.get("plateful:user");
+        if (res && res.value) setUser(JSON.parse(res.value));
+      } catch (e) {}
+      setReady(true);
+    })();
+  }, []);
+
+  async function handleSignIn(profile) {
+    setUser(profile);
+    try { await storage.set("plateful:user", JSON.stringify(profile)); } catch (e) {}
+  }
+
+  function handleSkip() {
+    setUser({ name: null, guest: true });
+  }
+
+  async function handleSignOut() {
+    setUser(null);
+    try { window.localStorage.removeItem("plateful:user"); } catch (e) {}
+  }
+
+  if (!ready) return null;
+  if (!user) return html`<${WelcomeScreen} onSignIn=${handleSignIn} onSkip=${handleSkip} />`;
+  return html`<${MainApp} user=${user} onSignOut=${handleSignOut} />`;
+}
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(html`<${Plateful} />`);
+root.render(html`<${App} />`);
 </script>
 
 <script>
