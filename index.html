@@ -72,7 +72,7 @@ const storage = {
 };
 
 const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner", "Snacks"];
-const DEFAULT_SETTINGS = { calorieGoal: 1800, proteinGoal: 120, carbGoal: 170, fatGoal: 55, weightUnit: "kg" };
+const DEFAULT_SETTINGS = { calorieGoal: 1800, proteinGoal: 120, carbGoal: 170, fatGoal: 55, weightUnit: "kg", goalWeight: "", workoutIntensity: "auto" };
 const EMPTY_ITEM_FORM = { name: "", calories: "", protein: "", carbs: "", fat: "" };
 const EMPTY_WEIGHT_FORM = { weight: "" };
 
@@ -98,6 +98,56 @@ const EXERCISE_LIBRARY = [
     { name: "Stretching", caloriesPer30: 90 },
   ]},
 ];
+
+// A rotating 7-day suggested routine at three general intensity levels.
+// This is generic fitness pacing, not individualized medical guidance — the in-app copy says as much.
+const WORKOUT_PLANS = {
+  gentle: [
+    { name: "Brisk walk", minutes: 20, caloriesPer30: 150 },
+    { name: "Gentle yoga", minutes: 20, caloriesPer30: 120 },
+    { name: "Brisk walk", minutes: 25, caloriesPer30: 150 },
+    { name: "Rest / stretching", minutes: 15, caloriesPer30: 90, rest: true },
+    { name: "Swimming or cycling", minutes: 20, caloriesPer30: 220 },
+    { name: "Brisk walk", minutes: 30, caloriesPer30: 150 },
+    { name: "Rest / stretching", minutes: 15, caloriesPer30: 90, rest: true },
+  ],
+  standard: [
+    { name: "Brisk walk", minutes: 30, caloriesPer30: 150 },
+    { name: "Bodyweight circuit", minutes: 25, caloriesPer30: 180 },
+    { name: "Cycling", minutes: 30, caloriesPer30: 260 },
+    { name: "Rest / stretching", minutes: 15, caloriesPer30: 90, rest: true },
+    { name: "Brisk walk or jog", minutes: 25, caloriesPer30: 260 },
+    { name: "Weight lifting", minutes: 30, caloriesPer30: 130 },
+    { name: "Hiking or long walk", minutes: 40, caloriesPer30: 180 },
+  ],
+  active: [
+    { name: "Running", minutes: 30, caloriesPer30: 300 },
+    { name: "Bodyweight circuit", minutes: 30, caloriesPer30: 180 },
+    { name: "Jump rope", minutes: 20, caloriesPer30: 300 },
+    { name: "Weight lifting", minutes: 35, caloriesPer30: 130 },
+    { name: "Cycling", minutes: 35, caloriesPer30: 260 },
+    { name: "Rest / stretching", minutes: 15, caloriesPer30: 90, rest: true },
+    { name: "Running or hiking", minutes: 40, caloriesPer30: 300 },
+  ],
+};
+
+function resolveWorkoutTier(settings, weights) {
+  if (settings.workoutIntensity && settings.workoutIntensity !== "auto") return settings.workoutIntensity;
+  const sorted = [...weights].sort((a, b) => b.date.localeCompare(a.date));
+  const latest = sorted[0];
+  const goal = Number(settings.goalWeight);
+  if (!latest || !goal) return "standard";
+  const diff = latest.weight - goal;
+  if (diff > 15) return "gentle";
+  if (diff <= 5) return "active";
+  return "standard";
+}
+
+function getPlanDayIndex(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  const dow = d.getDay(); // 0=Sun..6=Sat
+  return (dow + 6) % 7; // Monday=0 .. Sunday=6, matching the plan arrays above
+}
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
@@ -281,6 +331,7 @@ function MainApp({ user, onSignOut }) {
   const [planEntries, setPlanEntries] = useState([]);
   const [exerciseEntries, setExerciseEntries] = useState([]);
   const [showExerciseLibrary, setShowExerciseLibrary] = useState(false);
+  const [workoutDone, setWorkoutDone] = useState(false);
   const [weights, setWeights] = useState([]);
   const [weightForm, setWeightForm] = useState(EMPTY_WEIGHT_FORM);
   const [weightError, setWeightError] = useState("");
@@ -372,16 +423,18 @@ function MainApp({ user, onSignOut }) {
     setLoading(true);
     (async () => {
       try {
-        const [logRes, planRes, exRes] = await Promise.all([
+        const [logRes, planRes, exRes, workoutRes] = await Promise.all([
           storage.get(`plateful:log:${date}`),
           storage.get(`plateful:plan:${date}`),
           storage.get(`plateful:exercise:${date}`),
+          storage.get(`plateful:workoutdone:${date}`),
         ]);
         setEntries(logRes && logRes.value ? JSON.parse(logRes.value) : []);
         setPlanEntries(planRes && planRes.value ? JSON.parse(planRes.value) : []);
         setExerciseEntries(exRes && exRes.value ? JSON.parse(exRes.value) : []);
+        setWorkoutDone(workoutRes && workoutRes.value ? JSON.parse(workoutRes.value) : false);
       } catch (e) {
-        setEntries([]); setPlanEntries([]); setExerciseEntries([]);
+        setEntries([]); setPlanEntries([]); setExerciseEntries([]); setWorkoutDone(false);
       } finally { setLoading(false); }
     })();
     setAddingSlot(null);
@@ -429,6 +482,25 @@ function MainApp({ user, onSignOut }) {
     saveExerciseEntries(exerciseEntries.filter((e) => e.id !== id));
   }
 
+  async function handleToggleWorkoutDone(workout) {
+    const next = !workoutDone;
+    setWorkoutDone(next);
+    try { await storage.set(`plateful:workoutdone:${date}`, JSON.stringify(next)); } catch (e) {}
+    if (next) {
+      const entry = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name: workout.name,
+        minutes: workout.minutes,
+        caloriesPer30: workout.caloriesPer30,
+        calories: Math.round(workout.caloriesPer30 * (workout.minutes / 30)),
+        fromPlan: true,
+      };
+      await saveExerciseEntries([...exerciseEntries, entry]);
+    } else {
+      await saveExerciseEntries(exerciseEntries.filter((e) => !e.fromPlan));
+    }
+  }
+
   const saveWeights = useCallback(async (next) => {
     setWeights(next);
     try { await storage.set("plateful:weights", JSON.stringify(next)); }
@@ -462,6 +534,8 @@ function MainApp({ user, onSignOut }) {
   const exerciseTotal = useMemo(() => exerciseEntries.reduce((a, e) => a + Number(e.calories || 0), 0), [exerciseEntries]);
   const effectiveGoal = settings.calorieGoal + exerciseTotal;
   const remaining = effectiveGoal - totals.calories;
+  const workoutTier = useMemo(() => resolveWorkoutTier(settings, weights), [settings, weights]);
+  const todaysWorkout = WORKOUT_PLANS[workoutTier][getPlanDayIndex(date)];
 
   function handleFormChange(field, value) { setForm((f) => ({ ...f, [field]: value })); }
 
@@ -489,6 +563,8 @@ function MainApp({ user, onSignOut }) {
       carbGoal: Number(draftSettings.carbGoal) || 0,
       fatGoal: Number(draftSettings.fatGoal) || 0,
       weightUnit: draftSettings.weightUnit || "kg",
+      goalWeight: draftSettings.goalWeight === "" ? "" : Number(draftSettings.goalWeight) || "",
+      workoutIntensity: draftSettings.workoutIntensity || "auto",
     };
     setSettings(clean);
     try { await storage.set("plateful:settings", JSON.stringify(clean)); }
@@ -561,6 +637,25 @@ function MainApp({ user, onSignOut }) {
           <${MacroRing} label="Protein" consumed=${totals.protein} goal=${settings.proteinGoal} color="#A85736" />
           <${MacroRing} label="Carbs" consumed=${totals.carbs} goal=${settings.carbGoal} color="#C99A2E" />
           <${MacroRing} label="Fat" consumed=${totals.fat} goal=${settings.fatGoal} color="#55738C" />
+        </div>
+      </div>
+
+      <div style=${{ background: "#fff", border: "1px solid #EDE6DA", borderRadius: 20, padding: 20, marginBottom: 22 }}>
+        <div style=${{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "#8A8175", textTransform: "uppercase", marginBottom: 10 }}>Today's suggested workout</div>
+        <div style=${{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <div style=${{ fontFamily: "'Fraunces', serif", fontSize: 19, fontWeight: 700 }}>${todaysWorkout.name}</div>
+            <div style=${{ fontSize: 12, color: "#8A8175", marginTop: 2 }}>
+              ${todaysWorkout.rest ? "Recovery day" : `${todaysWorkout.minutes} min · ~${Math.round(todaysWorkout.caloriesPer30 * (todaysWorkout.minutes / 30))} kcal`}
+            </div>
+          </div>
+          <button onClick=${() => handleToggleWorkoutDone(todaysWorkout)}
+            style=${{ background: workoutDone ? "#2F5D50" : "#fff", color: workoutDone ? "#fff" : "#2F5D50", border: "1px solid #2F5D50", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <${Check} size=${14} /> ${workoutDone ? "Done" : "Mark done"}
+          </button>
+        </div>
+        <div style=${{ fontSize: 11, color: "#8A8175", marginTop: 10, lineHeight: 1.5 }}>
+          Based on your ${workoutTier} pace${settings.goalWeight ? "" : " — set a goal weight in Settings for a more tailored plan"}. Adjust the intensity anytime in Settings, and check with a doctor before starting a new routine if you're unsure it's right for you.
         </div>
       </div>
 
@@ -831,8 +926,19 @@ function MainApp({ user, onSignOut }) {
             </button>
           `)}
         </div>
+        <label style=${labelStyle}>Goal weight (${draftSettings.weightUnit}, optional)</label>
+        <input type="number" step="0.1" placeholder="e.g. 70" value=${draftSettings.goalWeight} onInput=${(e) => setDraftSettings((s) => ({ ...s, goalWeight: e.target.value }))} style=${inputStyle} />
+        <label style=${labelStyle}>Workout pace</label>
+        <div style=${{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          ${["auto", "gentle", "standard", "active"].map((tier) => html`
+            <button type="button" key=${tier} onClick=${() => setDraftSettings((s) => ({ ...s, workoutIntensity: tier }))}
+              style=${{ flex: "1 1 auto", padding: "8px 4px", borderRadius: 999, border: draftSettings.workoutIntensity === tier ? "1px solid #2F5D50" : "1px solid #E5DDCF", background: draftSettings.workoutIntensity === tier ? "#2F5D50" : "#fff", color: draftSettings.workoutIntensity === tier ? "#fff" : "#262220", fontSize: 12, fontWeight: 600, textTransform: "capitalize" }}>
+              ${tier}
+            </button>
+          `)}
+        </div>
         <p style=${{ fontSize: 12, color: "#8A8175", marginTop: 10, lineHeight: 1.5 }}>
-          A common starting point for gradual weight loss is a moderate calorie deficit combined with enough protein to preserve muscle — adjust these to whatever your own plan calls for.
+          A common starting point for gradual weight loss is a moderate calorie deficit combined with enough protein to preserve muscle — adjust these to whatever your own plan calls for. "Auto" picks a pace based on your goal weight and latest weigh-in.
         </p>
         <button onClick=${handleSaveSettings} style=${{ marginTop: 10, width: "100%", background: "#2F5D50", color: "#fff", border: "none", borderRadius: 12, padding: "12px 0", fontSize: 14, fontWeight: 700 }}>Save targets</button>
         ${user && !user.guest ? html`
